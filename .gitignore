@@ -1,0 +1,7 @@
+.DS_Store
+**/.DS_Store
+**/NBody
+**/NBodyApp
+**/*.dSYM/
+**/Shaders/*.air
+**/Shaders/*.metallib
