@@ -5,3 +5,7 @@
 **/*.dSYM/
 **/Shaders/*.air
 **/Shaders/*.metallib
+
+# Private working documents
+/PROJECT_CONTEXT.md
+/NBody-Metal-project-dossier.md
