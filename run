@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage: ./run <number>
+
+  1  Galaxy Arms
+  2  Two Cluster Merger
+  3  Optimized MVP
+  4  Galaxy Arms Color
+  5  Two Cluster Merger Color
+  6  Optimized MVP Color
+  7  Galaxy Arms Music Deco
+  8  Music Choreography and Depth
+EOF
+}
+
+if [[ $# -ne 1 ]]; then
+  usage >&2
+  exit 2
+fi
+
+case "$1" in
+  1) project="variations/NBody-Metal-Galaxy-Arms" ;;
+  2) project="variations/NBody-Metal-Two-Cluster-Merger" ;;
+  3) project="variations/NBody-Metal-MVP-optimized" ;;
+  4) project="variations/NBody-Metal-Galaxy-Arms-Color" ;;
+  5) project="variations/NBody-Metal-Two-Cluster-Merger-Color" ;;
+  6) project="variations/NBody-Metal-MVP-optimized-Color" ;;
+  7) project="variations/NBody-Metal-Galaxy-Arms-Music-Deco" ;;
+  8) project="variations/NBody-Metal-Music-Choreography" ;;
+  -h|--help) usage; exit 0 ;;
+  *) echo "Unknown variation: $1" >&2; usage >&2; exit 2 ;;
+esac
+
+app="$ROOT/$project/NBodyApp"
+project_dir="$ROOT/$project"
+needs_build=0
+if [[ ! -x "$app" ]]; then
+  needs_build=1
+else
+  for path in "$project_dir/build.sh" "$project_dir/App" "$project_dir/Source" "$project_dir/Shaders"; do
+    if [[ -f "$path" && "$path" -nt "$app" ]] ||
+       [[ -d "$path" && -n "$(find "$path" -type f -newer "$app" -print -quit)" ]]; then
+      needs_build=1
+      break
+    fi
+  done
+fi
+
+if [[ "$needs_build" -eq 1 ]]; then
+  echo "Building $project..."
+  (cd "$project_dir" && ./build.sh)
+fi
+
+if [[ ! -x "$app" ]]; then
+  echo "Viewer build failed: $app" >&2
+  exit 1
+fi
+
+cd "$project_dir"
+exec ./NBodyApp

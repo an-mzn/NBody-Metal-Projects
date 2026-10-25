@@ -19,29 +19,37 @@ The code contains a benchmark harness, but the repository does not include a rec
 
 | Folder | Focus |
 | --- | --- |
-| [`NBody-Metal-MVP-fixed/`](NBody-Metal-MVP-fixed/) | Minimal console baseline with random initial positions and zero initial velocity. |
-| [`NBody-Metal-MVP-with-Viewer/`](NBody-Metal-MVP-with-Viewer/) | Baseline force kernel plus a MetalKit point-particle viewer. |
-| [`NBody-Metal-MVP-stable-viewer/`](NBody-Metal-MVP-stable-viewer/) | Viewer variation with orbit-like initial velocities. |
-| [`NBody-Metal-MVP-optimized/`](NBody-Metal-MVP-optimized/) | Tiled force kernel and viewer, with orbit-like initialization. |
-| [`NBody-Metal-Galaxy-Arms/`](NBody-Metal-Galaxy-Arms/) | Tiled simulation initialized as a two-arm spiral. |
-| [`NBody-Metal-Two-Cluster-Merger/`](NBody-Metal-Two-Cluster-Merger/) | Tiled simulation initialized as two counter-rotating clusters. |
+| [`legacy/NBody-Metal-MVP-fixed/`](legacy/NBody-Metal-MVP-fixed/) | Minimal console baseline with random initial positions and zero initial velocity. |
+| [`legacy/NBody-Metal-MVP-with-Viewer/`](legacy/NBody-Metal-MVP-with-Viewer/) | Baseline force kernel plus a MetalKit point-particle viewer. |
+| [`legacy/NBody-Metal-MVP-stable-viewer/`](legacy/NBody-Metal-MVP-stable-viewer/) | Viewer variation with orbit-like initial velocities. |
+| [`variations/NBody-Metal-MVP-optimized/`](variations/NBody-Metal-MVP-optimized/) | Tiled force kernel and viewer, with orbit-like initialization. |
+| [`variations/NBody-Metal-Galaxy-Arms/`](variations/NBody-Metal-Galaxy-Arms/) | Tiled simulation initialized as a two-arm spiral. |
+| [`variations/NBody-Metal-Two-Cluster-Merger/`](variations/NBody-Metal-Two-Cluster-Merger/) | Tiled simulation initialized as two counter-rotating clusters. |
+| [`variations/NBody-Metal-Galaxy-Arms-Color/`](variations/NBody-Metal-Galaxy-Arms-Color/) | Galaxy Arms with a teal-to-violet-to-pink radial palette. |
+| [`variations/NBody-Metal-Two-Cluster-Merger-Color/`](variations/NBody-Metal-Two-Cluster-Merger-Color/) | Merger with persistent cyan and orange cluster colors. |
+| [`variations/NBody-Metal-MVP-optimized-Color/`](variations/NBody-Metal-MVP-optimized-Color/) | Optimized MVP colored by particle speed. |
+| [`variations/NBody-Metal-Galaxy-Arms-Music-Deco/`](variations/NBody-Metal-Galaxy-Arms-Music-Deco/) | Music-reactive Galaxy Arms; built-in saxophone detection alternates gravity strength for imported audio. |
+| [`variations/NBody-Metal-Music-Choreography/`](variations/NBody-Metal-Music-Choreography/) | Variation 8: music-driven layer twists, attack ripples, shallow depth and camera parallax. |
 
 Each folder is a standalone experiment with its own build script and source copies. Some implementation code is duplicated across variants.
+The `-Color` folders are copies of the three original variations with visual-only palette changes.
 
 ## Build and run
+
+From the repository root, launch a viewer with `./run <number>`. Run `./run --help` to see the numbered variation list.
 
 Requirements: macOS, Xcode Command Line Tools with the Metal compiler, and an Apple GPU that supports Metal. The windowed variants also require the macOS Cocoa and MetalKit frameworks. These build scripts use `xcrun` and `clang++` directly; there is no Xcode project or cross-platform build.
 
 For example, to build the galaxy-arms console and viewer:
 
 ```bash
-cd NBody-Metal-Galaxy-Arms
+cd variations/NBody-Metal-Galaxy-Arms
 ./build.sh
 ./NBody 50000       # console benchmark; particle count is optional
 ./NBodyApp           # interactive point-particle viewer
 ```
 
-The other folders that include an `App/` directory follow the same build and launch pattern. `NBody-Metal-MVP-fixed` builds the console program only. Run each script from its project folder; generated Metal libraries and executables are local build outputs.
+The other folders that include an `App/` directory follow the same build and launch pattern. `legacy/NBody-Metal-MVP-fixed` builds the console program only. Run each script from its project folder; generated Metal libraries and executables are local build outputs.
 
 ## Implementation outline
 
