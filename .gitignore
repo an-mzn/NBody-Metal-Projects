@@ -2,6 +2,7 @@
 **/.DS_Store
 **/NBody
 **/NBodyApp
+**/NBodyViewer.app/
 **/*.dSYM/
 **/Shaders/*.air
 **/Shaders/*.metallib
@@ -10,5 +11,16 @@
 /PROJECT_CONTEXT.md
 /NBody-Metal-project-dossier.md
 
-# Optional local audio track used by the music viewer
+# Local audio library; track files stay out of Git.
+/tracks/
+
+# Legacy local track location
 /Spill your time (extended version + slowed).mp3
+
+# Local credentials and diagnostic output
+.env
+.env.*
+*.pem
+*.key
+*.log
+__pycache__/
