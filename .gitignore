@@ -7,6 +7,9 @@
 **/Shaders/*.air
 **/Shaders/*.metallib
 
+# Local screenshots
+/Nbody-metal-screenshots/
+
 # Private working documents
 /PROJECT_CONTEXT.md
 /NBody-Metal-project-dossier.md
