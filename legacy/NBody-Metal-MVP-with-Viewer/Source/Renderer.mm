@@ -1,8 +1,8 @@
 #import <Foundation/Foundation.h>
 #import "Renderer.hpp"
 
-Renderer::Renderer(id<MTLDevice> device, NSURL* metallibURL, uint32_t N)
-: device_(device), N_(N) {
+Renderer::Renderer(id<MTLDevice> device, NSURL* metallibURL, uint32_t N, float gravityScale)
+: device_(device), N_(N), gravityScale_(gravityScale) {
     NSError* err = nil;
     library_ = [device_ newLibraryWithURL:metallibURL error:&err];
     if (!library_) {
@@ -52,6 +52,7 @@ double Renderer::step(float dt, bool waitForCompletion) {
         [enc setBuffer:bufMass_ offset:0 atIndex:1];
         [enc setBuffer:bufAcc_  offset:0 atIndex:2];
         [enc setBytes:&N_ length:sizeof(uint32_t) atIndex:3];
+        [enc setBytes:&gravityScale_ length:sizeof(float) atIndex:4];
         dispatch1D(enc, psForces_, N_);
         [enc endEncoding];
     }

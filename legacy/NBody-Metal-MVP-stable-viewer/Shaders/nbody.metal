@@ -5,11 +5,12 @@ kernel void nbody_forces(const device float2* pos   [[buffer(0)]],
                          const device float*  mass  [[buffer(1)]],
                          device float2*       acc   [[buffer(2)]],
                          constant uint&       N     [[buffer(3)]],
+                               constant float& gravityScale [[buffer(4)]],
                          uint gid [[thread_position_in_grid]]) {
     if (gid >= N) return;
     float2 pi = pos[gid];
     float2 a = float2(0.0);
-    const float G = 1e-4f;
+    const float G = 1e-4f * gravityScale;
     const float soft = 1e-1f;
     for (uint j = 0; j < N; ++j) {
         float2 d = pos[j] - pi;

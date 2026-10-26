@@ -6,6 +6,8 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "../Source/Renderer.hpp"
 #import "../Source/Sim.hpp"
+#import "../Source/LaunchPrompt.hpp"
+#import "../Source/ViewerControls.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -99,6 +101,9 @@ static constexpr double kMainSectionDuration = 2.5;
 @property(nonatomic,strong) SaxResultsObserver *analysisObserver;
 @property(nonatomic) Renderer* sim;
 @property(nonatomic) uint32_t N;
+@property(nonatomic) float pointSizeScale;
+@property(nonatomic) float simulationSpeed;
+@property(nonatomic) float gravityScale;
 @property(nonatomic) BOOL paused;
 - (void)togglePause;
 - (void)restart;
@@ -109,7 +114,7 @@ static constexpr double kMainSectionDuration = 2.5;
 @end
 
 @implementation ViewDelegate
-- (instancetype)initWithView:(MTKView*)view {
+- (instancetype)initWithView:(MTKView*)view particleCount:(uint32_t)particleCount particleSizeScale:(float)particleSizeScale simulationSpeed:(float)simulationSpeed gravityScale:(float)gravityScale {
   if ((self=[super init])) {
     self.paused = YES;
     _trackStartTime = 0.0;
@@ -120,7 +125,10 @@ static constexpr double kMainSectionDuration = 2.5;
     NSURL* nbodyLib = [cwd URLByAppendingPathComponent:@"Shaders/nbody.metallib"];
     NSURL* pointsLib = [cwd URLByAppendingPathComponent:@"Shaders/points.metallib"];
 
-    _N = 30000;
+    _N = particleCount;
+    _pointSizeScale = particleSizeScale;
+    _simulationSpeed = simulationSpeed;
+    _gravityScale = gravityScale;
     _sim = new Renderer(_dev, nbodyLib, _N);
 
     SimInit init = makeInit(_N, 42);
@@ -158,7 +166,7 @@ static constexpr double kMainSectionDuration = 2.5;
         break;
       }
     }
-    _sim->step(0.008f, false, gravityScale);
+    _sim->step(0.008f * self.simulationSpeed, false, gravityScale * self.gravityScale);
   }
 
   id<CAMetalDrawable> drawable = view.currentDrawable;
@@ -169,6 +177,12 @@ static constexpr double kMainSectionDuration = 2.5;
   id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rpd];
   [enc setRenderPipelineState:_pipe];
   [enc setVertexBuffer:_sim->positionBuffer() offset:0 atIndex:0];
+  ViewerControlsView *controls = (ViewerControlsView *)view;
+  [controls updateCameraPath];
+  float camera[4] = {controls.cameraZoom, controls.cameraPanX, controls.cameraPanY, controls.cameraRoll};
+  [enc setVertexBytes:camera length:sizeof(camera) atIndex:10];
+  float particleSize = self.pointSizeScale;
+  [enc setVertexBytes:&particleSize length:sizeof(particleSize) atIndex:11];
   [enc drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:_N];
   [enc endEncoding];
   [cb presentDrawable:drawable];
@@ -323,9 +337,12 @@ static constexpr double kMainSectionDuration = 2.5;
 @end
 
 @interface AppDelegate : NSObject<NSApplicationDelegate>
+- (void)returnToSetup;
 @property(strong) id quitKeyMonitor;
+@property(strong) NSURL *selectedAudioURL;
+@property(nonatomic) BOOL isShowingSetup;
 @property(strong) NSWindow* window;
-@property(strong) MTKView* view;
+@property(strong) ViewerControlsView* view;
 @property(strong) ViewDelegate* delegate;
 @end
 
@@ -353,12 +370,63 @@ static constexpr double kMainSectionDuration = 2.5;
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification*)n {
+  uint32_t particleCount = 30000;
+  NSURL *selectedAudioURL = nil;
+  float particleSizeScale = 1.0f;
+  float simulationSpeed = 1.0f;
+  float gravityScale = 1.0f;
+  if (!presentLaunchPrompt(YES, 30000, &particleCount, &selectedAudioURL, &particleSizeScale, &simulationSpeed, &gravityScale)) {
+    [NSApp terminate:nil];
+    return;
+  }
+  self.selectedAudioURL = selectedAudioURL;
+  [self launchWithParticleCount:particleCount audioURL:selectedAudioURL particleSizeScale:particleSizeScale simulationSpeed:simulationSpeed gravityScale:gravityScale];
+}
+
+- (void)returnToSetup {
+  if (self.isShowingSetup) return;
+  self.isShowingSetup = YES;
+  NSWindow *previousWindow = self.window;
+  MTKView *previousView = self.view;
+  id previousDelegate = self.delegate;
+  [previousDelegate stopAudio];
+  [previousWindow orderOut:nil];
+
+  uint32_t particleCount = self.delegate.N;
+  float particleSizeScale = self.delegate.pointSizeScale;
+  float simulationSpeed = self.delegate.simulationSpeed;
+  float gravityScale = self.delegate.gravityScale;
+  NSURL *selectedAudioURL = self.selectedAudioURL;
+  BOOL supportsAudio = YES;
+  BOOL shouldStart = presentLaunchPrompt(supportsAudio, particleCount, &particleCount,
+      &selectedAudioURL, &particleSizeScale, &simulationSpeed, &gravityScale);
+  self.isShowingSetup = NO;
+  if (!shouldStart) {
+    bringViewerWindowToFront(previousWindow, self.view);
+    return;
+  }
+
+  if ([previousDelegate respondsToSelector:@selector(stopAudio)]) [previousDelegate stopAudio];
+  previousView.delegate = nil;
+  previousWindow.contentView = nil;
+  self.selectedAudioURL = selectedAudioURL;
+  [self launchWithParticleCount:particleCount audioURL:selectedAudioURL
+      particleSizeScale:particleSizeScale simulationSpeed:simulationSpeed gravityScale:gravityScale];
+  if (previousWindow != self.window) [previousWindow close];
+}
+
+- (void)launchWithParticleCount:(uint32_t)particleCount audioURL:(NSURL *)selectedAudioURL particleSizeScale:(float)particleSizeScale simulationSpeed:(float)simulationSpeed gravityScale:(float)gravityScale {
+  if (self.quitKeyMonitor) { [NSEvent removeMonitor:self.quitKeyMonitor]; self.quitKeyMonitor = nil; }
   self.quitKeyMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
       handler:^NSEvent *(NSEvent *event) {
     NSEventModifierFlags flags = event.modifierFlags;
     NSString *key = event.charactersIgnoringModifiers.lowercaseString;
-    if (event.keyCode == 49) { [self.delegate togglePause]; return nil; }
-    if ([key isEqualToString:@"r"]) { [self.delegate restart]; return nil; }
+    if (self.isShowingSetup) return event;
+    if ([key isEqualToString:@"s"] &&
+        !(flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption))) {
+      dispatch_async(dispatch_get_main_queue(), ^{ [self returnToSetup]; });
+      return nil;
+    }
     if ((flags & NSEventModifierFlagControl) &&
         !(flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption)) &&
         ([key isEqualToString:@"c"] || [key isEqualToString:@"\003"])) {
@@ -379,30 +447,29 @@ static constexpr double kMainSectionDuration = 2.5;
   [mainMenu addItem:fileMenuItem];
   NSApp.mainMenu = mainMenu;
 
+  installViewerFullScreenMenu();
   NSRect r = NSMakeRect(100,100,960,600);
   self.window = [[NSWindow alloc] initWithContentRect:r
     styleMask:(NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable)
     backing:NSBackingStoreBuffered defer:NO];
+  self.window.releasedWhenClosed = NO;
+  self.window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
   self.window.title = @"Galaxy Arms Music Deco";
   id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
-  self.view = [[MTKView alloc] initWithFrame:r device:dev];
+  self.view = [[ViewerControlsView alloc] initWithFrame:r device:dev];
   self.view.colorPixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
   self.view.clearColor = MTLClearColorMake(0.0,0.0,0.0,1);
   self.view.preferredFramesPerSecond = 60;
-  self.delegate = [[ViewDelegate alloc] initWithView:self.view];
+  self.delegate = [[ViewDelegate alloc] initWithView:self.view particleCount:particleCount particleSizeScale:particleSizeScale simulationSpeed:simulationSpeed gravityScale:gravityScale];
   self.view.delegate = self.delegate;
+  __weak ViewDelegate *weakDelegate = self.delegate;
+  self.view.pauseHandler = ^{ [weakDelegate togglePause]; };
+  self.view.restartHandler = ^{ [weakDelegate restart]; };
   self.window.contentView = self.view;
-  [self.window makeKeyAndOrderFront:nil];
-  [NSApp activateIgnoringOtherApps:YES];
-  dispatch_async(dispatch_get_main_queue(), ^{
-    NSURL *defaultTrack = [[NSURL fileURLWithPath:[[NSFileManager defaultManager] currentDirectoryPath] isDirectory:YES]
-        URLByAppendingPathComponent:@"Spill your time (extended version + slowed).mp3"];
-    if ([[NSFileManager defaultManager] fileExistsAtPath:defaultTrack.path]) {
-      [self.delegate loadAudioURL:defaultTrack];
-    } else {
-      [self openAudio:nil];
-    }
-  });
+  bringViewerWindowToFront(self.window, self.view);
+  if (selectedAudioURL) {
+    [self.delegate loadAudioURL:selectedAudioURL];
+  }
 }
 @end
 

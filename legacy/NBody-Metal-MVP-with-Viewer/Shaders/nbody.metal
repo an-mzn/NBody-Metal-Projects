@@ -24,6 +24,7 @@ kernel void nbody_forces_tiled(const device float2* pos   [[buffer(0)]],
                                const device float*  mass  [[buffer(1)]],
                                device float2*       acc   [[buffer(2)]],
                                constant uint&       N     [[buffer(3)]],
+                               constant float& gravityScale [[buffer(4)]],
                                uint gid [[thread_position_in_grid]],
                                uint tid [[thread_index_in_threadgroup]],
                                uint tgs [[threads_per_threadgroup]]) {
@@ -52,7 +53,7 @@ kernel void nbody_forces_tiled(const device float2* pos   [[buffer(0)]],
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    if (gid < N) acc[gid] = a;
+    if (gid < N) acc[gid] = a * gravityScale;
 }
 
 kernel void integrate(device float2* pos [[buffer(0)]],

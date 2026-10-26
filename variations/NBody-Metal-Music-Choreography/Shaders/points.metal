@@ -23,7 +23,8 @@ float3 kelvinRGB(float kelvin) {
     return rgb;
 }
 vertex VSOut vs_points(const device float4* positions [[buffer(0)]],
-                       constant float4* parameters [[buffer(1)]], uint id [[vertex_id]]) {
+                       constant float4* parameters [[buffer(1)]],
+                       constant float& sizeScale [[buffer(11)]], uint id [[vertex_id]]) {
     float4 music = parameters[0];
     float energy = music.y, attack = music.z, brightness = music.w;
     float4 bands = parameters[2]; // bass, midrange, treble, beat-aligned attack
@@ -66,7 +67,7 @@ vertex VSOut vs_points(const device float4* positions [[buffer(0)]],
     const float nearPlane = 0.025f, farPlane = 30.0f;
     float depth = farPlane * (distance - nearPlane) / (farPlane - nearPlane);
     out.pos = float4(p.x * 2.07f / aspect, p.y * 2.07f, depth, distance);
-    out.pointSize = clamp(2.0f * perspective, 1.3f, 2.7f);
+    out.pointSize = clamp(2.0f * perspective, 1.3f, 2.7f) * sizeScale;
     out.color = kelvinRGB(temperature) * clamp(0.82f + p.z * 0.16f, 0.58f, 1.0f);
     return out;
 }

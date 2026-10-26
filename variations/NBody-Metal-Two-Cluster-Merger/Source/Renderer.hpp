@@ -4,7 +4,7 @@
 
 class Renderer {
 public:
-    Renderer(id<MTLDevice> device, NSURL* metallibURL, uint32_t N);
+    Renderer(id<MTLDevice> device, NSURL* metallibURL, uint32_t N, float gravityScale = 1.0f);
     void uploadInitialData(const float* posXY, const float* velXY, const float* mass);
     // Returns GPU time for this step in milliseconds (CPU-timed around command buffer completion)
     double step(float dt, bool waitForCompletion = true);
@@ -24,4 +24,5 @@ private:
     id<MTLBuffer> bufMass_;
     id<MTLBuffer> bufAcc_;
     uint32_t N_;
+    float gravityScale_;
 };

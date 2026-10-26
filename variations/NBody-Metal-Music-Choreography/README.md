@@ -26,7 +26,11 @@ Musical motion uses coordinated twists and depth bends rather than independent f
 - **Space**: pause or resume the simulation. It starts paused.
 - **R**: restart the simulation from its initial state (paused).
 - **Option-R**: choose an `.mp4` destination to begin recording the current window as it is. It does not restart playback, simulation, or camera motion. Press **Option-R** again to stop and save a partial recording; capture also stops when the track ends.
+- **Control-Command-F**: toggle full screen.
 - **C**: reset the camera.
-- **1**: start a smooth, repeating 36-second aerial camera tour with gradual changes in orbit, viewing angle, and distance. Mouse drag or scroll returns to manual camera control.
+- **1**: start a smooth, repeating 36-second aerial camera tour. Mouse drag or scroll returns to manual camera control.
 
 Audio playback starts or resumes with the simulation.
+## Startup setup
+
+The viewer opens with a setup card. Choose a particle count from 100 to 100,000 (30,000 by default); music-enabled variations also let you select an audio track before launch. Particle size is adjustable from 0.5× to 3× (default 1×); you can change the track later from the File menu.

@@ -38,3 +38,6 @@ Avg frame: 16.4 ms (FPS 61.0)  p50: 16.2 ms  p95: 19.8 ms
 - Shows white point sprites on a dark background.
 - Positions are in clip-space ([-1,1]) for simplicity.
 - Simulation still runs on the GPU; rendering is a separate pass.
+## Startup setup
+
+The viewer opens with a setup card. Choose a particle count from 100 to 100,000 (30,000 by default); music-enabled variations also let you select an audio track before launch. Particle size is adjustable from 0.5× to 3× (default 1×); you can change the track later from the File menu.

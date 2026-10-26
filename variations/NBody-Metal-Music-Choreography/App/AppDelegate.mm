@@ -6,6 +6,7 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "../Source/Renderer.hpp"
 #import "../Source/Sim.hpp"
+#import "../Source/LaunchPrompt.hpp"
 #import "../Source/MusicAnalysis.hpp"
 #include "../Source/MotionSmoothing.hpp"
 #include <algorithm>
@@ -13,6 +14,15 @@
 #include <cstdio>
 #include <signal.h>
 #include <vector>
+
+static dispatch_queue_t musicAnalysisQueue(void) {
+  static dispatch_queue_t queue;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    queue = dispatch_queue_create("nbody.music-analysis", DISPATCH_QUEUE_SERIAL);
+  });
+  return queue;
+}
 
 @interface OrbitView : MTKView
 @property(nonatomic) float cameraYaw;
@@ -22,6 +32,9 @@
 @property(nonatomic) float cameraPanY;
 @property(nonatomic) BOOL cameraPathActive;
 @property(nonatomic) CFAbsoluteTime cameraPathStartTime;
+@property(nonatomic) float cameraPathYawOrigin;
+@property(nonatomic) float cameraPathPitchOrigin;
+@property(nonatomic) float cameraPathDistanceOrigin;
 - (void)resetCamera;
 - (void)startCameraPath;
 - (void)updateCameraPath;
@@ -69,18 +82,25 @@
   self.cameraDistance = std::clamp(self.cameraDistance * std::exp((float)event.scrollingDeltaY * 0.02f), 0.15f, 12.0f);
 }
 - (void)startCameraPath {
+  [self resetCamera];
+  self.cameraPathYawOrigin = self.cameraYaw;
+  self.cameraPathPitchOrigin = self.cameraPitch;
+  self.cameraPathDistanceOrigin = self.cameraDistance;
   self.cameraPathStartTime = CFAbsoluteTimeGetCurrent();
   self.cameraPathActive = YES;
 }
 - (void)updateCameraPath {
   if (!self.cameraPathActive) return;
   const double phase = 6.28318530718 * (CFAbsoluteTimeGetCurrent() - self.cameraPathStartTime) / 36.0;
-  // Slow aerial orbit with long, gently eased moves between wide and close framing.
-  self.cameraYaw = (float)(phase + 0.24 * sin(phase) + 0.10 * sin(2.0 * phase));
-  self.cameraPitch = 0.62f + 0.25f * (float)sin(phase + 0.3)
-      + 0.09f * (float)sin(2.0 * phase - 0.8);
-  self.cameraDistance = 3.9f + 2.0f * (float)sin(phase + 0.7)
-      + 0.35f * (float)sin(2.0 * phase - 0.4);
+  // Relative offsets are zero at phase zero and repeat without a jump.
+  self.cameraYaw = self.cameraPathYawOrigin
+      + (float)(phase + 0.24 * sin(phase) + 0.10 * sin(2.0 * phase));
+  self.cameraPitch = self.cameraPathPitchOrigin
+      + 0.25f * (float)(sin(phase + 0.3) - sin(0.3))
+      + 0.09f * (float)(sin(2.0 * phase - 0.8) - sin(-0.8));
+  self.cameraDistance = self.cameraPathDistanceOrigin
+      + 0.8f * (2.0f * (float)(sin(phase + 0.7) - sin(0.7))
+      + 0.35f * (float)(sin(2.0 * phase - 0.4) - sin(-0.4)));
 }
 - (void)keyDown:(NSEvent *)event {
   if ([event.charactersIgnoringModifiers.lowercaseString isEqualToString:@"c"]) [self resetCamera];
@@ -98,6 +118,7 @@
   double _previousPhysicsTime;
   double _musicFrameDuration;
   NSUInteger _analysisGeneration;
+  dispatch_group_t _analysisGroup;
 }
 @property(nonatomic,strong) id<MTLDevice> dev;
 @property(nonatomic,strong) id<MTLRenderPipelineState> pipe;
@@ -118,12 +139,16 @@
 @property(nonatomic,weak) MTKView *view;
 @property(nonatomic) Renderer* sim;
 @property(nonatomic) uint32_t N;
+@property(nonatomic) float pointSizeScale;
+@property(nonatomic) float simulationSpeed;
+@property(nonatomic) float gravityScale;
 @property(nonatomic) BOOL paused;
 - (void)togglePause;
 - (void)restart;
 - (void)loadAudioURL:(NSURL *)url;
 - (BOOL)startPlayback;
 - (void)stopAudio;
+- (void)stopAudioWithCompletion:(dispatch_block_t)completion;
 - (void)recordTrackToURL:(NSURL *)url;
 - (void)stopRecording;
 - (void)stopRecordingWithCompletion:(dispatch_block_t)completion;
@@ -131,13 +156,14 @@
 @end
 
 @implementation ViewDelegate
-- (instancetype)initWithView:(MTKView*)view {
+- (instancetype)initWithView:(MTKView*)view particleCount:(uint32_t)particleCount particleSizeScale:(float)particleSizeScale simulationSpeed:(float)simulationSpeed gravityScale:(float)gravityScale {
   if ((self=[super init])) {
     self.view = view;
     self.paused = YES;
     _trackStartTime = 0.0;
     _activeCueIndex = -1;
     _analysisGeneration = 0;
+    _analysisGroup = dispatch_group_create();
     _visualMusic = {};
     _visualMusicVelocity = {};
     _previousAudioTime = -1.0;
@@ -150,7 +176,10 @@
     NSURL* nbodyLib = [cwd URLByAppendingPathComponent:@"Shaders/nbody.metallib"];
     NSURL* pointsLib = [cwd URLByAppendingPathComponent:@"Shaders/points.metallib"];
 
-    _N = 30000;
+    _N = particleCount;
+    _pointSizeScale = particleSizeScale;
+    _simulationSpeed = simulationSpeed;
+    _gravityScale = gravityScale;
     _sim = new Renderer(_dev, nbodyLib, _N);
 
     SimInit init = makeInit(_N, 42);
@@ -211,8 +240,8 @@
     }
     _previousAudioTime = trackTime;
     const double physicsDelta = _previousPhysicsTime < 0.0 ? 1.0/60.0 : trackTime-_previousPhysicsTime;
-    const float dt = (float)std::clamp(physicsDelta * 0.48, 0.0, 0.02);
-    if (!self.paused && dt > 0 && _sim->step(dt, false, 1.15f + 0.45f * _visualMusic.energy) >= 0) {
+    const float dt = (float)std::clamp(physicsDelta * 0.48 * self.simulationSpeed, 0.0, 0.02);
+    if (!self.paused && dt > 0 && _sim->step(dt, false, (1.15f + 0.45f * _visualMusic.energy) * self.gravityScale) >= 0) {
       _previousPhysicsTime = trackTime;
     }
   }
@@ -235,6 +264,8 @@
       _visualMusic.phrase, 0, 0, 0,
       orbit.cameraPanX, orbit.cameraPanY, 0, 0};
   [enc setVertexBytes:visualParameters length:sizeof(visualParameters) atIndex:1];
+  float particleSize = self.pointSizeScale;
+  [enc setVertexBytes:&particleSize length:sizeof(particleSize) atIndex:11];
   [enc drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:_N];
   [enc endEncoding];
   [cb presentDrawable:drawable];
@@ -267,8 +298,8 @@
 }
 
 - (void)loadAudioURL:(NSURL *)url {
-  NSUInteger generation = ++_analysisGeneration;
   [self stopAudio];
+  NSUInteger generation = ++_analysisGeneration;
   _musicFrames.clear();
   _visualMusic = {};
   _visualMusicVelocity = {};
@@ -293,21 +324,26 @@
 
   NSApp.keyWindow.title = [NSString stringWithFormat:@"Preparing choreography — %@", url.lastPathComponent];
   __weak ViewDelegate *weakSelf = self;
-  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-    auto analysis = analyzeMusic(url);
-    dispatch_async(dispatch_get_main_queue(), ^{
-      ViewDelegate *owner = weakSelf;
-      if (!owner || generation != owner->_analysisGeneration) return;
-      if (analysis.error || analysis.frames.empty()) {
-        NSApp.keyWindow.title = @"Audio analysis failed — choose another track";
-        NSLog(@"Music analysis failed: %@", analysis.error);
-        return;
-      }
-      owner->_musicFrames = analysis.frames;
-      owner->_musicFrameDuration = analysis.frameDuration;
-      NSApp.keyWindow.title = [NSString stringWithFormat:@"Music Choreography — %@", url.lastPathComponent];
-      // Playback begins when the user resumes with Space.
-    });
+  dispatch_group_t analysisGroup = _analysisGroup;
+  dispatch_group_enter(analysisGroup);
+  dispatch_async(musicAnalysisQueue(), ^{
+    @autoreleasepool {
+      auto analysis = analyzeMusic(url);
+      dispatch_async(dispatch_get_main_queue(), ^{
+        ViewDelegate *owner = weakSelf;
+        if (owner && generation == owner->_analysisGeneration) {
+          if (analysis.error || analysis.frames.empty()) {
+            NSApp.keyWindow.title = @"Audio analysis failed — choose another track";
+            NSLog(@"Music analysis failed: %@", analysis.error);
+          } else {
+            owner->_musicFrames = analysis.frames;
+            owner->_musicFrameDuration = analysis.frameDuration;
+            NSApp.keyWindow.title = [NSString stringWithFormat:@"Music Choreography — %@", url.lastPathComponent];
+          }
+        }
+        dispatch_group_leave(analysisGroup);
+      });
+    }
   });
 }
 
@@ -526,16 +562,29 @@
 }
 
 - (void)stopAudio {
+  ++_analysisGeneration;
   [self.player stop];
   [self.audioEngine stop];
   self.player = nil;
   self.audioEngine = nil;
   self.playbackFile = nil;
 }
+
+- (void)stopAudioWithCompletion:(dispatch_block_t)completion {
+  [self stopAudio];
+  dispatch_group_notify(_analysisGroup, dispatch_get_main_queue(), ^{
+    self.audioFile = nil;
+    self.playbackFile = nil;
+    if (completion) completion();
+  });
+}
 @end
 
 @interface AppDelegate : NSObject<NSApplicationDelegate>
+- (void)returnToSetup;
 @property(strong) id quitKeyMonitor;
+@property(strong) NSURL *selectedAudioURL;
+@property(nonatomic) BOOL isShowingSetup;
 @property(strong) NSWindow* window;
 @property(strong) MTKView* view;
 @property(strong) ViewDelegate* delegate;
@@ -593,16 +642,92 @@
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification*)n {
+  uint32_t particleCount = 30000;
+  NSURL *selectedAudioURL = nil;
+  float particleSizeScale = 1.0f;
+  float simulationSpeed = 1.0f;
+  float gravityScale = 1.0f;
+  if (!presentLaunchPrompt(YES, 30000, &particleCount, &selectedAudioURL, &particleSizeScale, &simulationSpeed, &gravityScale)) {
+    [NSApp terminate:nil];
+    return;
+  }
+  self.selectedAudioURL = selectedAudioURL;
+  [self launchWithParticleCount:particleCount audioURL:selectedAudioURL particleSizeScale:particleSizeScale simulationSpeed:simulationSpeed gravityScale:gravityScale];
+}
+
+- (void)returnToSetup {
+  if (self.isShowingSetup) return;
+  self.isShowingSetup = YES;
+  NSWindow *previousWindow = self.window;
+  MTKView *previousView = self.view;
+  id previousDelegate = self.delegate;
+  if ([previousDelegate respondsToSelector:@selector(stopAudio)]) [previousDelegate stopAudio];
+  [previousWindow orderOut:nil];
+
+  uint32_t particleCount = self.delegate.N;
+  float particleSizeScale = self.delegate.pointSizeScale;
+  float simulationSpeed = self.delegate.simulationSpeed;
+  float gravityScale = self.delegate.gravityScale;
+  NSURL *selectedAudioURL = self.selectedAudioURL;
+  BOOL supportsAudio = YES;
+  BOOL shouldStart = presentLaunchPrompt(supportsAudio, particleCount, &particleCount,
+      &selectedAudioURL, &particleSizeScale, &simulationSpeed, &gravityScale);
+  self.isShowingSetup = NO;
+  if (!shouldStart) {
+    bringViewerWindowToFront(previousWindow, self.view);
+    return;
+  }
+
+  if ([previousDelegate respondsToSelector:@selector(stopRecording)]) [previousDelegate stopRecording];
+  previousView.delegate = nil;
+  previousView.paused = YES;
+  self.isShowingSetup = YES;
+  previousWindow.title = @"Preparing simulation…";
+  bringViewerWindowToFront(previousWindow, previousView);
+  dispatch_block_t relaunch = ^{
+    (void)previousDelegate;
+    self.isShowingSetup = NO;
+    previousWindow.contentView = nil;
+    self.selectedAudioURL = selectedAudioURL;
+    [self launchWithParticleCount:particleCount audioURL:selectedAudioURL
+        particleSizeScale:particleSizeScale simulationSpeed:simulationSpeed gravityScale:gravityScale];
+    if (previousWindow != self.window) [previousWindow close];
+  };
+  if ([previousDelegate respondsToSelector:@selector(stopAudioWithCompletion:)]) {
+    [(id)previousDelegate stopAudioWithCompletion:relaunch];
+  } else {
+    if ([previousDelegate respondsToSelector:@selector(stopAudio)]) [previousDelegate stopAudio];
+    relaunch();
+  }
+}
+
+- (void)launchWithParticleCount:(uint32_t)particleCount audioURL:(NSURL *)selectedAudioURL particleSizeScale:(float)particleSizeScale simulationSpeed:(float)simulationSpeed gravityScale:(float)gravityScale {
+  if (self.quitKeyMonitor) { [NSEvent removeMonitor:self.quitKeyMonitor]; self.quitKeyMonitor = nil; }
   // Convert terminal Ctrl-C into a normal AppKit quit request so recording can finalize.
   signal(SIGINT, SIG_IGN);
-  self.interruptSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGINT, 0, dispatch_get_main_queue());
-  dispatch_source_set_event_handler(self.interruptSource, ^{ [NSApp terminate:nil]; });
-  dispatch_resume(self.interruptSource);
+  if (!self.interruptSource) {
+    self.interruptSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGINT, 0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(self.interruptSource, ^{ [NSApp terminate:nil]; });
+    dispatch_resume(self.interruptSource);
+  }
 
   self.quitKeyMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
       handler:^NSEvent *(NSEvent *event) {
     NSEventModifierFlags flags = event.modifierFlags;
     NSString *key = event.charactersIgnoringModifiers.lowercaseString;
+    if (self.isShowingSetup) return event;
+    if ([key isEqualToString:@"s"] &&
+        !(flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption))) {
+      dispatch_async(dispatch_get_main_queue(), ^{ [self returnToSetup]; });
+      return nil;
+    }
+    if ([key isEqualToString:@"f"] &&
+        (flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) ==
+            (NSEventModifierFlagCommand | NSEventModifierFlagControl) &&
+        !(flags & NSEventModifierFlagOption)) {
+      [self.window toggleFullScreen:nil];
+      return nil;
+    }
     if ([key isEqualToString:@"1"]) { [(OrbitView *)self.view startCameraPath]; return nil; }
     if (event.keyCode == 49) { [self.delegate togglePause]; return nil; }
     if ([key isEqualToString:@"r"] && (flags & NSEventModifierFlagOption)) {
@@ -629,12 +754,22 @@
   [fileMenu addItemWithTitle:@"Quit Music Choreography" action:@selector(terminate:) keyEquivalent:@"q"];
   [fileMenuItem setSubmenu:fileMenu];
   [mainMenu addItem:fileMenuItem];
+  NSMenuItem *viewMenuItem = [[NSMenuItem alloc] initWithTitle:@"View" action:nil keyEquivalent:@""];
+  NSMenu *viewMenu = [NSMenu new];
+  NSMenuItem *fullScreenItem = [[NSMenuItem alloc] initWithTitle:@"Toggle Full Screen"
+      action:@selector(toggleFullScreen:) keyEquivalent:@"f"];
+  fullScreenItem.keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
+  [viewMenu addItem:fullScreenItem];
+  viewMenuItem.submenu = viewMenu;
+  [mainMenu addItem:viewMenuItem];
   NSApp.mainMenu = mainMenu;
 
   NSRect r = NSMakeRect(100,100,960,600);
   self.window = [[NSWindow alloc] initWithContentRect:r
     styleMask:(NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable)
     backing:NSBackingStoreBuffered defer:NO];
+  self.window.releasedWhenClosed = NO;
+  self.window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
   self.window.title = @"Music Choreography";
   id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
   self.view = [[OrbitView alloc] initWithFrame:r device:dev];
@@ -643,20 +778,13 @@
   self.view.clearDepth = 1.0;
   self.view.clearColor = MTLClearColorMake(0.0,0.0,0.0,1);
   self.view.preferredFramesPerSecond = 60;
-  self.delegate = [[ViewDelegate alloc] initWithView:self.view];
+  self.delegate = [[ViewDelegate alloc] initWithView:self.view particleCount:particleCount particleSizeScale:particleSizeScale simulationSpeed:simulationSpeed gravityScale:gravityScale];
   self.view.delegate = self.delegate;
   self.window.contentView = self.view;
-  [self.window makeKeyAndOrderFront:nil];
-  [NSApp activateIgnoringOtherApps:YES];
-  dispatch_async(dispatch_get_main_queue(), ^{
-    NSURL *defaultTrack = [[NSURL fileURLWithPath:[[NSFileManager defaultManager] currentDirectoryPath] isDirectory:YES]
-        URLByAppendingPathComponent:@"Spill your time (extended version + slowed).mp3"];
-    if ([[NSFileManager defaultManager] fileExistsAtPath:defaultTrack.path]) {
-      [self.delegate loadAudioURL:defaultTrack];
-    } else {
-      [self openAudio:nil];
-    }
-  });
+  bringViewerWindowToFront(self.window, self.view);
+  if (selectedAudioURL) {
+    [self.delegate loadAudioURL:selectedAudioURL];
+  }
 }
 @end
 

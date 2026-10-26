@@ -10,6 +10,8 @@ struct FSIn { float3 color [[user(locn0)]]; };
 
 vertex VSOut vs_points(const device float2* pos [[buffer(0)]],
                        const device float2* vel [[buffer(1)]],
+                       constant float4& camera [[buffer(10)]],
+                       constant float& sizeScale [[buffer(11)]],
                        uint vid [[vertex_id]]) {
     VSOut o;
     float2 p = pos[vid];
@@ -21,8 +23,10 @@ vertex VSOut vs_points(const device float2* pos [[buffer(0)]],
     o.color = t < 0.6f
         ? mix(cool, warm, t / 0.6f)
         : mix(warm, hot, (t - 0.6f) / 0.4f);
+    float cs = cos(camera.w), sn = sin(camera.w);
+    p = float2(cs * p.x - sn * p.y, sn * p.x + cs * p.y) * camera.x + camera.yz;
     o.pos = float4(p, 0, 1);
-    o.pointSize = 2.2f;
+    o.pointSize = 2.2f * sizeScale;
     return o;
 }
 
