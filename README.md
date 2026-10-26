@@ -1,6 +1,6 @@
 # N-body simulations with Apple Metal
 
-A set of 2D N-body simulation experiments written in C++, Objective-C++, and Metal Shading Language. The project explores moving an all-pairs gravitational simulation onto Apple GPUs, measuring its frame cost, and making the particle motion visible in a native macOS window.
+A set of 2D and 3D N-body simulation experiments written in C++, Objective-C++, and Metal Shading Language. The project explores moving an all-pairs gravitational simulation onto Apple GPUs, measuring its frame cost, and making the particle motion visible in a native macOS window.
 
 I built these experiments to understand how GPU compute, memory movement, and rendering fit together in a real-time simulation. The repository preserves several implementation stages and particle scenarios.
 
@@ -11,7 +11,7 @@ I built these experiments to understand how GPU compute, memory movement, and re
 - Later variants add a tiled kernel that stages particle positions and masses in Metal threadgroup memory to reuse data during force calculations. This changes memory access patterns, not the all-pairs complexity.
 - MetalKit variants render the evolving positions as point sprites while the simulation runs on the GPU.
 - Console variants warm up the GPU, time 300 simulation steps, and report average, median (p50), and p95 frame times and derived FPS.
-- Different initial conditions explore a basic particle cloud, a two-arm spiral, and two rotating clusters approaching one another.
+- Different initial conditions explore a basic particle cloud, a two-arm spiral, rotating clusters, and a volume-filled sphere.
 
 The code contains a benchmark harness, but the repository does not include a recorded benchmark report or a controlled comparison between kernels. Performance depends on the Mac and GPU used; no specific speedup is claimed here.
 
@@ -30,6 +30,11 @@ The code contains a benchmark harness, but the repository does not include a rec
 | [`variations/NBody-Metal-MVP-optimized-Color/`](variations/NBody-Metal-MVP-optimized-Color/) | Optimized MVP colored by particle speed. |
 | [`variations/NBody-Metal-Galaxy-Arms-Music-Deco/`](variations/NBody-Metal-Galaxy-Arms-Music-Deco/) | Music-reactive Galaxy Arms; built-in saxophone detection alternates gravity strength for imported audio. |
 | [`variations/NBody-Metal-Music-Choreography/`](variations/NBody-Metal-Music-Choreography/) | Variation 8: music-driven layer twists, attack ripples, shallow depth and camera parallax. |
+| [`variations/NBody-Metal-Sphere-Choreography/`](variations/NBody-Metal-Sphere-Choreography/) | Variation 9: sphere-started 3D N-body simulation with rotationally symmetric initialization. |
+
+| [`variations/NBody-Metal-Volume-Choreography/`](variations/NBody-Metal-Volume-Choreography/) | Variation 10: volume-filled motion with independently oriented orbits and three-axis music deformation. |
+| [`variations/NBody-Metal-Track-Fit-Choreography/`](variations/NBody-Metal-Track-Fit-Choreography/) | Variation 11: movement follows the strongest separated part in each passage, with smooth lead changes and quieter accompaniment. |
+| [`variations/NBody-Metal-Shape-Choreography/`](variations/NBody-Metal-Shape-Choreography/) | Variation 12: five selectable starting shapes; visible motion comes from gravity and velocities, with the music modulating gravitational attraction. |
 
 Each folder is a standalone experiment with its own build script and source copies. Some implementation code is duplicated across variants.
 The `-Color` folders are copies of the three original variations with visual-only palette changes.
@@ -51,6 +56,27 @@ cd variations/NBody-Metal-Galaxy-Arms
 
 The other folders that include an `App/` directory follow the same build and launch pattern. `legacy/NBody-Metal-MVP-fixed` builds the console program only. Run each script from its project folder; generated Metal libraries and executables are local build outputs.
 
+## Local music library
+
+Music variations can show tracks placed in the repository root `tracks/` folder.
+That folder is ignored by Git; keep individual audio files there and they will
+remain local. The setup dropdown lists the three configured tracks. To add or
+remove a listed track, edit the `trackNames` list in the five music-enabled
+variations’ `Source/LaunchPrompt.hpp` files. Supported formats are MP3, M4A,
+WAV, AIFF, CAF, AAC, and FLAC. Choose **Choose your own…** to use a file outside
+that folder. Volume and Track-Fit Choreography separate and analyse the full track on first
+use, then caches its results under `~/Library/Caches/NBody/Instruments`.
+
+## Viewer controls
+
+The numbered viewers share these controls: **Space** pauses or resumes,
+**R** restarts, **Control-Command-F** toggles full screen, and **C** resets
+the camera. Across variations 1–12, **1** starts a slow automatic camera tour
+from that same reset view, including its default zoom and tilt. Drag with the left
+mouse button to rotate the view, right-drag to pan, and scroll to zoom; double-
+click to reset the camera. Manual camera input stops the automatic movement.
+Variations 8–11 also support **Option-R** to record the window with audio.
+
 ## Implementation outline
 
 - `Source/Sim.cpp` creates deterministic starting positions, velocities, and masses.
@@ -61,4 +87,4 @@ The other folders that include an `App/` directory follow the same build and lau
 
 ## Scope and limitations
 
-This is a 2D demonstrator using softened forces, simplified integration, and in some variants velocity damping. Its goal is to explore Metal compute, memory reuse, and visualization rather than provide a scientifically validated astrophysics solver. The all-pairs method grows quadratically with particle count, making profiling and algorithmic improvements natural next steps.
+The project includes 2D experiments and 3D music-driven viewers using softened forces, simplified integration, and in some variants velocity damping. Its goal is to explore Metal compute, memory reuse, and visualization rather than provide a scientifically validated astrophysics solver. The all-pairs method grows quadratically with particle count, making profiling and algorithmic improvements natural next steps.

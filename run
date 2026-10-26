@@ -15,6 +15,12 @@ Usage: ./run <number>
   6  Optimized MVP Color
   7  Galaxy Arms Music Deco
   8  Music Choreography and Depth
+  9  Sphere Choreography
+ 10  Volume Choreography
+ 11  Track-Fit Choreography
+ 12  Shape Choreography
+
+Press S in a running viewer to return to simulation setup.
 EOF
 }
 
@@ -32,6 +38,10 @@ case "$1" in
   6) project="variations/NBody-Metal-MVP-optimized-Color" ;;
   7) project="variations/NBody-Metal-Galaxy-Arms-Music-Deco" ;;
   8) project="variations/NBody-Metal-Music-Choreography" ;;
+  9) project="variations/NBody-Metal-Sphere-Choreography" ;;
+  10) project="variations/NBody-Metal-Volume-Choreography" ;;
+  11) project="variations/NBody-Metal-Track-Fit-Choreography" ;;
+  12) project="variations/NBody-Metal-Shape-Choreography" ;;
   -h|--help) usage; exit 0 ;;
   *) echo "Unknown variation: $1" >&2; usage >&2; exit 2 ;;
 esac
@@ -42,7 +52,7 @@ needs_build=0
 if [[ ! -x "$app" ]]; then
   needs_build=1
 else
-  for path in "$project_dir/build.sh" "$project_dir/App" "$project_dir/Source" "$project_dir/Shaders"; do
+  for path in "$project_dir/build.sh" "$project_dir/App" "$project_dir/Source" "$project_dir/Shaders" "$ROOT/build_progress.sh"; do
     if [[ -f "$path" && "$path" -nt "$app" ]] ||
        [[ -d "$path" && -n "$(find "$path" -type f -newer "$app" -print -quit)" ]]; then
       needs_build=1
@@ -53,7 +63,7 @@ fi
 
 if [[ "$needs_build" -eq 1 ]]; then
   echo "Building $project..."
-  (cd "$project_dir" && ./build.sh)
+  (cd "$project_dir" && ./build.sh --viewer)
 fi
 
 if [[ ! -x "$app" ]]; then
@@ -61,5 +71,26 @@ if [[ ! -x "$app" ]]; then
   exit 1
 fi
 
-cd "$project_dir"
-exec ./NBodyApp
+# Launch Services supplies the foreground activation handoff that a raw
+# terminal executable does not receive. Keep the project working directory
+# because the viewers load their shader libraries using relative paths.
+bundle="$project_dir/NBodyViewer.app"
+mkdir -p "$bundle/Contents/MacOS"
+cat > "$bundle/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleExecutable</key><string>launch</string>
+  <key>CFBundleIdentifier</key><string>com.nbody.viewer.$(basename "$project_dir")</string>
+  <key>CFBundleName</key><string>NBody Viewer</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+EOF
+{
+  printf '#!/bin/bash\n'
+  printf 'cd %q || exit 1\n' "$project_dir"
+  printf 'exec %q\n' "$app"
+} > "$bundle/Contents/MacOS/launch"
+chmod +x "$bundle/Contents/MacOS/launch"
+exec /usr/bin/open -n -W "$bundle"
